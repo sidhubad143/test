@@ -1,11 +1,9 @@
-
 from flask import Blueprint, request, jsonify
 import asyncio
 from datetime import datetime, timezone
 import logging
 import aiohttp 
 import requests 
-
 
 from .utils.protobuf_utils import encode_uid, decode_info, create_protobuf 
 from .utils.crypto_utils import encrypt_aes
@@ -15,10 +13,8 @@ logger = logging.getLogger(__name__)
 
 like_bp = Blueprint('like_bp', __name__)
 
-
 _SERVERS = {}
 _token_cache = None
-
 
 async def async_post_request(url: str, data: bytes, token: str):
     try:
@@ -44,9 +40,10 @@ def make_request(uid_enc: str, url: str, token: str):
         return None
 
 async def detect_player_region(uid: str):
-    for region_key, server_url in _SERVERS.items(): # Utilisez _SERVERS
-        tokens = _token_cache.get_tokens(region_key) # Utilisez _token_cache
+    for region_key, server_url in _SERVERS.items():
+        tokens = _token_cache.get_tokens(region_key)
         if not tokens:
+            logger.warning(f"No tokens for {region_key}, skipping region detection.")
             continue
 
         info_url = f"{server_url}/GetPlayerPersonalShow"
@@ -58,8 +55,12 @@ async def detect_player_region(uid: str):
     return None, None
 
 async def send_likes(uid: str, region: str):
-    tokens = _token_cache.get_tokens(region) # Utilisez _token_cache
-    like_url = f"{_SERVERS[region]}/LikeProfile" # Utilisez _SERVERS
+    tokens = _token_cache.get_tokens(region)
+    if not tokens:
+        logger.warning(f"No tokens for {region}, cannot send likes.")
+        return {'sent': 0, 'added': 0}
+    
+    like_url = f"{_SERVERS[region]}/LikeProfile"
     encrypted = encrypt_aes(create_protobuf(uid, region))
 
     tasks = [async_post_request(like_url, bytes.fromhex(encrypted), token) for token in tokens]
@@ -85,8 +86,8 @@ async def like_player():
         region, player_info = await detect_player_region(uid)
         if not player_info:
             return jsonify({
-                "error": "Player not found",
-                "message": "Player not found on any server",
+                "error": "Player not found or no valid tokens",
+                "message": "Player not found on any server or no valid tokens available. Check /health-check for token status.",
                 "status": 404,
                 "credits": "https://t.me/nopethug"
             }), 404
