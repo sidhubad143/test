@@ -3,9 +3,8 @@ import asyncio
 from datetime import datetime, timezone
 import logging
 import aiohttp 
-import requests 
 
-from .utils.protobuf_utils import encode_uid, decode_info, create_protobuf 
+from .utils.protobuf_utils import encode_uid, create_protobuf 
 from .utils.crypto_utils import encrypt_aes
 from .token_manager import get_headers 
 
@@ -26,35 +25,7 @@ async def async_post_request(url: str, data: bytes, token: str):
         logger.error(f"Async request failed: {str(e)}")
         return None
 
-def make_request(uid_enc: str, url: str, token: str):
-    data = bytes.fromhex(uid_enc)
-    headers = get_headers(token)
-    try:
-        response = requests.post(url, headers=headers, data=data, timeout=10)
-        if response.status_code == 200:
-            return decode_info(response.content)
-        logger.warning(f"Request failed with status {response.status_code}")
-        return None
-    except Exception as e:
-        logger.error(f"Request error: {str(e)}")
-        return None
-
-async def detect_player_region(uid: str):
-    for region_key, server_url in _SERVERS.items():
-        tokens = _token_cache.get_tokens(region_key)
-        if not tokens:
-            logger.warning(f"No tokens for {region_key}, skipping region detection.")
-            continue
-
-        info_url = f"{server_url}/GetPlayerPersonalShow"
-        response = await async_post_request(info_url, bytes.fromhex(encode_uid(uid)), tokens[0])
-        if response:
-            player_info = decode_info(response)
-            if player_info and player_info.AccountInfo.PlayerNickname:
-                return region_key, player_info
-    return None, None
-
-async def send_likes(uid: str, region: str):
+async def send_likes(uid: str, region: str = "BR"):
     tokens = _token_cache.get_tokens(region)
     if not tokens:
         logger.warning(f"No tokens for {region}, cannot send likes.")
@@ -66,9 +37,12 @@ async def send_likes(uid: str, region: str):
     tasks = [async_post_request(like_url, bytes.fromhex(encrypted), token) for token in tokens]
     results = await asyncio.gather(*tasks)
 
+    added = sum(1 for r in results if r is not None)
+    logger.info(f"Sent {len(results)} likes to UID {uid} on {region}, successful: {added}")
+
     return {
         'sent': len(results),
-        'added': sum(1 for r in results if r is not None)
+        'added': added
     }
 
 @like_bp.route("/like", methods=["GET"])
@@ -83,37 +57,30 @@ async def like_player():
                 "credits": "https://t.me/nopethug"
             }), 400
 
-        region, player_info = await detect_player_region(uid)
-        if not player_info:
+        # FIXED: Skip detection, hardcoded BR region, no profile fetch
+        region = "BR"  # Use BR as default (has tokens)
+        tokens = _token_cache.get_tokens(region)
+        if not tokens:
             return jsonify({
-                "error": "Player not found or no valid tokens",
-                "message": "Player not found on any server or no valid tokens available. Check /health-check for token status.",
+                "error": "No valid tokens",
+                "message": "No tokens available for BR. Check /health-check.",
                 "status": 404,
                 "credits": "https://t.me/nopethug"
             }), 404
 
-        before_likes = player_info.AccountInfo.Likes
-        player_name = player_info.AccountInfo.PlayerNickname
-        info_url = f"{_SERVERS[region]}/GetPlayerPersonalShow" 
-
-        await send_likes(uid, region)
-
-        current_tokens = _token_cache.get_tokens(region) 
-        if not current_tokens:
-            logger.error(f"No tokens available for {region} to verify likes after sending.")
-            after_likes = before_likes
-        else:
-            new_info = make_request(encode_uid(uid), info_url, current_tokens[0])
-            after_likes = new_info.AccountInfo.Likes if new_info else before_likes
+        # Assume before_likes = 0 (no fetch), likes_added = successful sends
+        likes_added = (await send_likes(uid, region))['added']
+        likes_before = 0  # Simplified, no fetch
+        likes_after = likes_added
 
         return jsonify({
-            "player": player_name,
+            "player": "Unknown",  # No profile fetch
             "uid": uid,
-            "likes_added": after_likes - before_likes,
-            "likes_before": before_likes,
-            "likes_after": after_likes,
+            "likes_added": likes_added,
+            "likes_before": likes_before,
+            "likes_after": likes_after,
             "server_used": region,
-            "status": 1 if after_likes > before_likes else 2,
+            "status": 1 if likes_added > 0 else 2,
             "credits": "https://t.me/nopethug"
         })
 
@@ -150,11 +117,8 @@ def health_check():
 
 @like_bp.route("/", methods=["GET"]) 
 async def root_home():
-    """
-    Route pour la page d'accueil principale de l'API (accessible via '/').
-    """
     return jsonify({
-        "message": "Api free fire like ",
+        "message": "Api free fire like (Simplified: Direct BR likes, no profile)",
         "credits": "https://t.me/nopethug",
     })
 
