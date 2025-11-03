@@ -5,7 +5,6 @@ import os
 import logging
 from datetime import timedelta
 
-
 from .token_manager import TokenCache, get_headers 
 from .like_routes import like_bp, initialize_routes 
 
@@ -13,13 +12,11 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 SERVERS = {
     "EUROPE": os.getenv("EUROPE_SERVER", "https://clientbp.ggblueshark.com"),
     "IND": os.getenv("IND_SERVER", "https://client.ind.freefiremobile.com"),
     "BR": os.getenv("BR_SERVER", "https://client.us.freefiremobile.com"),
 }
-
 
 token_cache = TokenCache(servers_config=SERVERS) 
 
