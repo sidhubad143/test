@@ -10,7 +10,6 @@ from datetime import timedelta
 
 logger = logging.getLogger(__name__)
 
-# FIXED: Changed to working public JWT generator (supports BR, US, SG etc., but NOT IND)
 AUTH_URL = "https://jwt-gen-api-v2.onrender.com/token" 
 CACHE_DURATION = timedelta(hours=7).seconds
 TOKEN_REFRESH_THRESHOLD = timedelta(hours=6).seconds
@@ -39,7 +38,6 @@ class TokenCache:
             return self.cache.get(server_key, [])
 
     def _refresh_tokens(self, server_key):
-        # FIXED: Skip IND as it's unsupported by this generator
         if server_key == "IND":
             logger.warning(f"IND region not supported by current JWT generator ({AUTH_URL}). No tokens for IND. Generate your own API for IND.")
             self.cache[server_key] = []
